@@ -1,8 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Depends
 from app.schemas import PostCreate, PostResponse
 from app.db import Post, create_db_and_table, get_async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
+from sqlalchemy import select
+from app.images import imagekit
+# from imagekitio.models.UploadFileRequestOptions import UploadFileRequestOptions
 
 
 @asynccontextmanager
@@ -12,41 +15,43 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-text_posts = {    
-    1: {"title": "New Post", "content": "Cool text post"},
-    2: {"title": "Python Basics", "content": "Learn variables and data types"},
-    3: {"title": "FastAPI Guide", "content": "Building APIs with FastAPI"},
-    4: {"title": "Web Development", "content": "Frontend meets backend"},
-    5: {"title": "Database Tips", "content": "Understanding SQL and NoSQL"},
-    6: {"title": "Machine Learning", "content": "Introduction to ML concepts"},
-    7: {"title": "React Tutorial", "content": "Creating interactive UIs"},
-    8: {"title": "Docker Essentials", "content": "Containerizing applications"},
-    9: {"title": "Git Workflow", "content": "Version control best practices"},
-    10: {"title": "Cloud Computing", "content": "Deploying apps to the cloud"},
-    11: {"title": "REST APIs", "content": "Designing scalable APIs"},
-    12: {"title": "Authentication", "content": "JWT and user login systems"},
-    13: {"title": "Cyber Security", "content": "Protecting web applications"},
-    14: {"title": "Data Structures", "content": "Arrays, stacks, and queues"},
-    15: {"title": "Algorithms", "content": "Sorting and searching techniques"}
-    }
+@app.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+    session: AsyncSession = Depends(get_async_session)
+):
+    post = Post(
+        caption=caption,
+        url="dummyurl",
+        file_type="photo",
+        file_name="dunny name"
+    )
 
-@app.get("/posts")
-def get_all_posts(limit: int = None):
-    # print(list(text_posts.values())[:9])
-    if limit:
-        return list(text_posts.values())[:limit]
-    return text_posts
+    session.add(post)
+    await session.commit()
+    await session.refresh(post)
+    return post
 
-@app.get("/posts/{id}")
-def get_post(id: int) -> PostResponse:
-    if id not in text_posts:
-        raise HTTPException(status_code=404, detail="Post not found")
-    return text_posts.get(id)
+@app.get("/feed")
+async def get_feed(
+    session: AsyncSession = Depends(get_async_session)
+):
+    result = await session.execute(select(Post).order_by(Post.created_at.desc()))
+    # print(result.all())
+    posts = [row[0] for row in result.all()]
+    # print(posts)
 
-@app.post("/posts")
-def create_post(post: PostCreate) -> PostResponse:
-    new_post = {"title": post.title, "content":post.content}
-    # print(text_posts.keys())
-    text_posts[max(text_posts.keys())+1] =new_post
-    return new_post
-
+    posts_data = []
+    for post in posts:
+        posts_data.append(
+            {
+                "id": str(post.id),
+                "caption": post.caption,
+                "url": post.url,
+                "file_type": post.file_type,
+                "file_name": post.file_name,
+                "created_at": post.created_at.isoformat()
+            }
+        )
+    return {"posts": posts_data}
